@@ -3667,6 +3667,51 @@ def raw_ntp_loop(interface: str, base_mac: str) -> None:
     sniff(iface=iface, filter="udp dst port 123", prn=answer, store=False)
 
 
+def udp_ntp_server_loop(bind_ip: str = "0.0.0.0", port: int = 123) -> None:
+    # 2023-11-01 12:00:00 UTC (1698840000).
+    # Klientský certifikát základny vypršel v červnu 2024.
+    # Vrácením času z roku 2023 je certifikát základny platný a TLS spojení projde.
+    base_epoch_2023 = 1698840000
+    start_monotonic = time.monotonic()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((bind_ip, port))
+        print(f"NTP server poslouchá na udp://{bind_ip}:{port} (čas 2023 pro klientský certifikát)", flush=True)
+    except Exception as e:
+        print(f"NTP server na portu {port} nelze spustit: {e}", flush=True)
+        return
+
+    while True:
+        try:
+            data, addr = sock.recvfrom(1024)
+            if len(data) < 48 or (data[0] & 0x07) != 3:
+                continue
+            fake_unix_time = base_epoch_2023 + (time.monotonic() - start_monotonic)
+            epoch_offset = 2208988800
+            seconds = int(fake_unix_time) + epoch_offset
+            fraction = int((fake_unix_time - int(fake_unix_time)) * (1 << 32))
+            now = seconds.to_bytes(4, "big") + fraction.to_bytes(4, "big")
+
+            resp = bytearray(48)
+            resp[0] = 0x24
+            resp[1] = 1
+            resp[2] = data[2]
+            resp[3] = 0xEC
+            resp[12:16] = b"LOCL"
+            resp[16:24] = now
+            resp[24:32] = data[40:48]
+            resp[32:40] = now
+            resp[40:48] = now
+
+            sock.sendto(bytes(resp), addr)
+            fake_str = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(fake_unix_time))
+            print(f"NTP dotaz od {addr[0]} -> odpovězeno {fake_str} UTC", flush=True)
+        except Exception as e:
+            print(f"NTP error: {e}", flush=True)
+
+
 def serve(config: dict[str, Any]) -> None:
     gateway = Gateway(config)
     bind_ip = config.get("bind_ip", "0.0.0.0")
@@ -3717,6 +3762,12 @@ def serve(config: dict[str, Any]) -> None:
             args=(raw_dns["interface"], raw_dns["base_mac"], raw_dns["target_ip"]),
             daemon=True,
         ).start()
+
+    threading.Thread(
+        target=udp_ntp_server_loop,
+        args=(bind_ip, 123),
+        daemon=True,
+    ).start()
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
