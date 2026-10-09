@@ -3666,7 +3666,7 @@ def serve(config: dict[str, Any]) -> None:
     bind_ip = config.get("bind_ip", "0.0.0.0")
     port = int(config.get("port", 443))
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.minimum_version = ssl.TLSVersion.TLSv1
     # Zadny strop na verzi tu drive nebyl, takze se s klientem, ktery umi
     # TLS 1.3, vyjednavalo 1.3. Podezreni (2026-08-21, druha zakladna stejne
     # znacky/firmwaru): jeji TLS 1.3 cesta certifikat validuje prisneji nez

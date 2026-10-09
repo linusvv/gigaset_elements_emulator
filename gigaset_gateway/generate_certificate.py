@@ -52,8 +52,8 @@ def main() -> None:
         .issuer_name(name)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - dt.timedelta(days=1))
-        .not_valid_after(now + dt.timedelta(days=3650))
+        .not_valid_before(dt.datetime(2010, 1, 1, tzinfo=dt.timezone.utc))
+        .not_valid_after(dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc))
         .add_extension(
             x509.SubjectAlternativeName(
                 [x509.DNSName(item) for item in dns_names]
