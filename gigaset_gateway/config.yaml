@@ -1,5 +1,5 @@
 name: Gigaset elements local gateway
-version: "1.0.63"
+version: "1.0.64"
 slug: gigaset_gateway
 description: >-
   Local replacement for the Gigaset elements cloud. Keeps the original base
@@ -20,7 +20,7 @@ services:
   - mqtt:want
 options:
   base_id: ""
-  port: 8443
+  port: 443
   control_poll_port: 8080
   control_poll_interval: 5
   certificate_hostnames:

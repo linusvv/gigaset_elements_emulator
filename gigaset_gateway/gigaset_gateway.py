@@ -3200,8 +3200,8 @@ def handle_connection(
         except Exception:
             pass
         with context.wrap_socket(raw, server_side=True) as tls:
-            print(f"TLS {peer[0]} OK: ver={tls.version()} cipher={tls.cipher()}", flush=True)
-            while True:
+          print(f"TLS {peer[0]} OK: ver={tls.version()} cipher={tls.cipher()}", flush=True)
+          while True:
             method, path, body, headers = receive_request(tls)
             if gateway.config.get("log_headers") and method:
                 print(f"HLAVICKY {peer[0]} {method} {path}\n{headers}", flush=True)
