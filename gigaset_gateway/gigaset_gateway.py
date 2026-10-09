@@ -3193,12 +3193,9 @@ def handle_connection(
         gateway.note_local_address(raw.getsockname()[0])
         try:
             peek = raw.recv(64, socket.MSG_PEEK)
-            if peek and len(peek) >= 3:
-                rec_type = peek[0]
-                rec_ver = (peek[1] << 8) | peek[2]
-                print(f"CLIENT HELLO {peer[0]} type={rec_type} ver={hex(rec_ver)} len={len(peek)}", flush=True)
-        except Exception:
-            pass
+            print(f"PEEK {peer[0]} len={len(peek)}: {peek[:32].hex()}", flush=True)
+        except Exception as e:
+            print(f"PEEK {peer[0]} ERR: {type(e).__name__}: {e}", flush=True)
         with context.wrap_socket(raw, server_side=True) as tls:
           print(f"TLS {peer[0]} OK: ver={tls.version()} cipher={tls.cipher()}", flush=True)
           while True:
@@ -3683,7 +3680,7 @@ def serve(config: dict[str, Any]) -> None:
     # i kdyz je certifikat sam o sobe v poradku - overeno rucne). Zustat na
     # 1.2 - presne to, na co uz mirilo puvodni minimum_version.
     context.maximum_version = ssl.TLSVersion.TLSv1_2
-    context.set_ciphers("ALL:@SECLEVEL=0")
+    context.set_ciphers("AES256-SHA:AES128-SHA:DES-CBC3-SHA:ALL:@SECLEVEL=0")
     context.load_cert_chain(config["certificate"], config["private_key"])
 
     control = config.get("control", {})
