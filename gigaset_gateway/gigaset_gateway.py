@@ -3191,8 +3191,17 @@ def handle_connection(
     try:
         raw.settimeout(int(gateway.config.get("socket_timeout_seconds", 120)))
         gateway.note_local_address(raw.getsockname()[0])
+        try:
+            peek = raw.recv(64, socket.MSG_PEEK)
+            if peek and len(peek) >= 3:
+                rec_type = peek[0]
+                rec_ver = (peek[1] << 8) | peek[2]
+                print(f"CLIENT HELLO {peer[0]} type={rec_type} ver={hex(rec_ver)} len={len(peek)}", flush=True)
+        except Exception:
+            pass
         with context.wrap_socket(raw, server_side=True) as tls:
-          while True:
+            print(f"TLS {peer[0]} OK: ver={tls.version()} cipher={tls.cipher()}", flush=True)
+            while True:
             method, path, body, headers = receive_request(tls)
             if gateway.config.get("log_headers") and method:
                 print(f"HLAVICKY {peer[0]} {method} {path}\n{headers}", flush=True)

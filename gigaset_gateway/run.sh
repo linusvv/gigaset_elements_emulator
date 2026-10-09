@@ -58,22 +58,19 @@ if bashio::var.is_empty "${MQTT_HOST}"; then
 fi
 
 # --- certifikat -------------------------------------------------------------
-# Zakladna retez neoveruje, staci self-signed.  Generuje se jen jednou, aby si
-# po restartu doplnku nemusela znovu vyzvedavat podpis.
-if [ ! -f "${CERTIFICATE}" ] || [ ! -f "${PRIVATE_KEY}" ]; then
-    CERT_ARGS=""
-    for host in $(bashio::config 'certificate_hostnames'); do
-        CERT_ARGS="${CERT_ARGS} --dns ${host}"
-    done
-    for address in $(bashio::config 'certificate_addresses'); do
-        CERT_ARGS="${CERT_ARGS} --ip ${address}"
-    done
-    # shellcheck disable=SC2086
-    python3 /opt/gigaset/generate_certificate.py \
-        ${CERT_ARGS} \
-        --cert "${CERTIFICATE}" --key "${PRIVATE_KEY}"
-    bashio::log.info "Vytvořen certifikát ${CERTIFICATE}"
-fi
+# Overi platnost certifikatu (Y2038 bezpecnost, data platnosti) a vygeneruje novy jen pri potrebe.
+CERT_ARGS=""
+for host in $(bashio::config 'certificate_hostnames'); do
+    CERT_ARGS="${CERT_ARGS} --dns ${host}"
+done
+for address in $(bashio::config 'certificate_addresses'); do
+    CERT_ARGS="${CERT_ARGS} --ip ${address}"
+done
+# shellcheck disable=SC2086
+python3 /opt/gigaset/generate_certificate.py \
+    ${CERT_ARGS} \
+    --cert "${CERTIFICATE}" --key "${PRIVATE_KEY}"
+bashio::log.info "Certifikát ${CERTIFICATE} zkontrolován / připraven."
 
 # --- soubory, ktere si brana za behu prepisuje ------------------------------
 # Manifest rika zakladne, ktere Lua ma nacist, a jmenuje presne ty verze, ktere
