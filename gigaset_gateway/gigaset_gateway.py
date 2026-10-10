@@ -27,7 +27,7 @@ BASE_IDENTITY_RE = re.compile(r"^[0-9a-f]{16,64}$")
 # nereaguje, proto tu nejsou.  Univerzalni senzor um01 kalibruje dvema kroky:
 # prvni potvrzuje "cal", druhy "cal2".  Retezec "cal1" ve firmwaru uzlu jako
 # prikaz NEEXISTUJE, je jen soucasti nazvu udalosti cal1req/cal1done.
-SAFE_ENDNODE_COMMANDS = {"cal", "cal2", "recal", "verreq"}
+SAFE_ENDNODE_COMMANDS = {"cal", "cal2", "recal", "verreq", "on", "off"}
 
 # Popisky typu zarizeni pro Home Assistant.
 DEVICE_NAMES = {
@@ -38,7 +38,11 @@ DEVICE_NAMES = {
     "bn01": "Gigaset tlacitko",
     "is01": "Gigaset sirena",
     "ts01": "Gigaset termostat",
+    "sp01": "Gigaset zasuvka",
+    "sp02": "Gigaset zasuvka",
 }
+
+PLUG_TYPES = {"sp01", "sp02"}
 
 # Typy, ktere hlasi polohu, a jejich slovnik.  "tilt" je sklopene okno; chodi
 # stejne jako open/close az po uspesne kalibraci.  "preopen" hlasi jen uzly
@@ -135,6 +139,7 @@ DISCOVERY_SUFFIXES = (
     ("button", "_calibrate_step2"),
     ("button", "_cal_reset"),
     ("button", "_siren_off"),
+    ("switch", "_switch"),
     ("event", "_button"),
 )
 
@@ -175,6 +180,7 @@ STATE_TOPICS = (
     "last_event",
     "siren",
     "pattern",
+    "state",
 )
 
 # Temata, ktera nesou okamzikovou udalost, ne stav.  Pri obnove po startu se
@@ -305,6 +311,8 @@ CONTROL_ACTIONS = {
     # priority_manageru - probihajici poplach muze sirenu vzapeti prepnout zpet.
     "siren_on": ("endnode", lambda _device_id: "sirenon"),
     "siren_off": ("endnode", lambda _device_id: "sirenoff"),
+    "plug_on": ("endnode", lambda _device_id: "on"),
+    "plug_off": ("endnode", lambda _device_id: "off"),
     **{
         f"pattern_{name}": ("endnode", lambda _device_id, cmd=command: cmd)
         for name, command in SIREN_PATTERNS.items()
@@ -346,6 +354,8 @@ CONTROL_ACTIONS_NEEDING_DEVICE = {
     "thermostat_setpoint",
     "siren_on",
     "siren_off",
+    "plug_on",
+    "plug_off",
     *(f"pattern_{name}" for name in SIREN_PATTERNS),
 }
 
@@ -1175,6 +1185,7 @@ class MqttBridge:
         client.subscribe(f"{self.base_topic}/base/+/control/+")
         client.subscribe(f"{self.base_topic}/base/+/mode/set")
         client.subscribe(f"{self.base_topic}/+/+/command")
+        client.subscribe(f"{self.base_topic}/+/+/set")
         client.subscribe(f"{self.base_topic}/ts01/+/setpoint/set")
         client.publish(f"{self.base_topic}/availability", "online", retain=True)
         if self.on_connected is not None:
@@ -1238,6 +1249,15 @@ class MqttBridge:
                     f"{self.base_topic}/ts01/{request['device_id']}/setpoint",
                     f"{Decimal(value):.2f}",
                 )
+            elif (
+                len(parts) == 4
+                and parts[1] in PLUG_TYPES
+                and parts[3] in {"set", "command"}
+            ):
+                payload_str = message.payload.decode("utf-8", "replace").strip().lower()
+                action = "plug_on" if payload_str in {"on", "1", "true", "plug_on"} else "plug_off"
+                self.publish(f"{parts[0]}/{parts[1]}/{parts[2]}/state", "ON" if action == "plug_on" else "OFF")
+                self.command_handler(action, parts[1], parts[2], "")
             elif len(parts) == 4 and parts[3] == "command":
                 action = message.payload.decode("utf-8", "replace").strip()
                 if action.startswith("{"):
@@ -1509,6 +1529,14 @@ class MqttBridge:
             self.publish(f"{root}/alarm", "OFF")
             return ""
 
+        if action == "change" and str(document.get("target_type", "")).endswith(".configuration"):
+            dev_type = str(document.get("target_type", "")).split(".")[0]
+            dev_id = str(document.get("target_id", "")).lower()
+            val = str(document.get("value", "")).lower()
+            if dev_type in PLUG_TYPES and val in {"on", "off"}:
+                self.publish(f"{self.base_topic}/{dev_type}/{dev_id}/state", val.upper())
+                return val
+
         return ""
 
     def _common(self, type_code: str, device_id: str, base: str = "") -> dict[str, Any]:
@@ -1770,6 +1798,27 @@ class MqttBridge:
             },
         )
 
+    def _plug_switch(
+        self, root: str, object_id: str, common: dict[str, Any], type_code: str
+    ) -> None:
+        self.discovery(
+            "switch",
+            object_id + "_switch",
+            {
+                **common,
+                "name": "Switch",
+                "device_class": "outlet",
+                "icon": "mdi:power-socket-eu",
+                "state_topic": f"{root}/state",
+                "command_topic": f"{root}/set",
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "state_on": "ON",
+                "state_off": "OFF",
+                "unique_id": object_id + "_switch",
+            },
+        )
+
     def _pressure(
         self, root: str, object_id: str, common: dict[str, Any], hpa: float
     ) -> None:
@@ -1982,6 +2031,8 @@ class MqttBridge:
         common = self._common(type_code, device_id, base)
 
         self._device_controls(root, object_id, common, type_code)
+        if type_code in PLUG_TYPES:
+            self._plug_switch(root, object_id, common, type_code)
         self.publish(f"{root}/raw", json.dumps(event, separators=(",", ":")))
 
         if sink == "ba":
@@ -2007,6 +2058,14 @@ class MqttBridge:
 
         if not payload:
             return
+
+        if type_code in PLUG_TYPES and sink == "state":
+            if payload.startswith("1") or payload.lower() in {"on", "true"}:
+                self.publish(f"{root}/state", "ON")
+                return
+            if payload.startswith("0") or payload.lower() in {"off", "false"}:
+                self.publish(f"{root}/state", "OFF")
+                return
 
         # Stock TS01 povazuje report "setpoint,<zdroj>,<setiny C>" za uspesne
         # potvrzeni a ukonci po nem retry. Je proto autoritativni a MQTT target
