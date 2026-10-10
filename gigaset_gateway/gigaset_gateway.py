@@ -3143,8 +3143,8 @@ def sign_client_certificate(csr_pem: bytes, config: dict[str, Any]) -> bytes:
         .issuer_name(signer_cert.subject)
         .public_key(csr.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=3650))
+        .not_valid_before(datetime(2010, 1, 1, tzinfo=timezone.utc))
+        .not_valid_after(datetime(2037, 12, 31, 23, 59, 59, tzinfo=timezone.utc))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(
             x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),

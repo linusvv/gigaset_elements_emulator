@@ -23,6 +23,18 @@ def is_certificate_valid(cert_path: Path, key_path: Path, dns_names: list[str]) 
         min_safe_date = dt.datetime(2015, 1, 1, tzinfo=dt.timezone.utc)
         if cert.not_valid_before_utc > min_safe_date:
             return False
+        try:
+            bc = cert.extensions.get_extension_for_oid(x509.oid.ExtensionOID.BASIC_CONSTRAINTS).value
+            if bc.ca:
+                return False
+        except x509.ExtensionNotFound:
+            pass
+        try:
+            ku = cert.extensions.get_extension_for_oid(x509.oid.ExtensionOID.KEY_USAGE).value
+            if ku.key_cert_sign:
+                return False
+        except x509.ExtensionNotFound:
+            pass
         key_data = key_path.read_bytes()
         key = serialization.load_pem_private_key(key_data, password=None)
         if cert.public_key().public_numbers() != key.public_key().public_numbers():
@@ -82,8 +94,22 @@ def main() -> None:
         .not_valid_before(dt.datetime(2010, 1, 1, tzinfo=dt.timezone.utc))
         .not_valid_after(dt.datetime(2037, 12, 31, 23, 59, 59, tzinfo=dt.timezone.utc))
         .add_extension(
-            x509.BasicConstraints(ca=True, path_length=None),
-            critical=True,
+            x509.SubjectAlternativeName(
+                [x509.DNSName(item) for item in dns_names]
+                + [
+                    x509.IPAddress(ipaddress.ip_address(item))
+                    for item in ip_addresses
+                ]
+            ),
+            critical=False,
+        )
+        .add_extension(
+            x509.BasicConstraints(ca=False, path_length=None),
+            critical=False,
+        )
+        .add_extension(
+            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),
+            critical=False,
         )
         .add_extension(
             x509.KeyUsage(
@@ -92,20 +118,10 @@ def main() -> None:
                 key_encipherment=True,
                 data_encipherment=False,
                 key_agreement=False,
-                key_cert_sign=True,
+                key_cert_sign=False,
                 crl_sign=False,
                 encipher_only=False,
                 decipher_only=False,
-            ),
-            critical=True,
-        )
-        .add_extension(
-            x509.SubjectAlternativeName(
-                [x509.DNSName(item) for item in dns_names]
-                + [
-                    x509.IPAddress(ipaddress.ip_address(item))
-                    for item in ip_addresses
-                ]
             ),
             critical=False,
         )
